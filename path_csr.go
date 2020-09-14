@@ -24,7 +24,7 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
-	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1alpha1"
+	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1beta1"
 )
 
 func (b *backend) pathCSR() *framework.Path {
@@ -126,14 +126,9 @@ func (b *backend) pathCSRWrite(ctx context.Context, req *logical.Request, d *fra
 		},
 	}
 
-	op, err := pcaClient.CreateCertificate(ctx, creq)
+	cresp, err := pcaClient.CreateCertificate(ctx, creq)
 	if err != nil {
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
-	}
-
-	cresp, err := op.Wait(ctx)
-	if err != nil {
-		return logical.ErrorResponse(fmt.Sprintf("Could not create CSR based Certificate: %s  certspec: %v", name, err)), logical.ErrInvalidRequest
 	}
 
 	return &logical.Response{
@@ -191,15 +186,11 @@ func (b *backend) pathCSRDelete(ctx context.Context, req *logical.Request, d *fr
 		Name:   parent,
 		Reason: privatecapb.RevocationReason_CESSATION_OF_OPERATION,
 	}
-	op, err := pcaClient.RevokeCertificate(ctx, crev)
+	crevresp, err := pcaClient.RevokeCertificate(ctx, crev)
 	if err != nil {
 		return logical.ErrorResponse("Error revoking certificate"), logical.ErrInvalidRequest
 	}
 
-	crevresp, err := op.Wait(ctx)
-	if err != nil {
-		return logical.ErrorResponse("Error revoking certificate"), logical.ErrInvalidRequest
-	}
 	b.Logger().Debug("Certificate Revoked %s", crevresp.Name)
 
 	return &logical.Response{}, nil

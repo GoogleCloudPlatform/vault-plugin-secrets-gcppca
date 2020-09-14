@@ -26,7 +26,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/connectivity"
 
-	pcaapi "cloud.google.com/go/security/privateca/apialpha1"
+	pcaapi "cloud.google.com/go/security/privateca/apiv1beta1"
 	hclog "github.com/hashicorp/go-hclog"
 )
 

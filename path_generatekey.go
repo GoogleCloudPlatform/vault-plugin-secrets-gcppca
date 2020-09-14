@@ -26,13 +26,13 @@ import (
 	"strings"
 	"time"
 
-	privateca "cloud.google.com/go/security/privateca/apialpha1"
+	privateca "cloud.google.com/go/security/privateca/apiv1beta1"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
 	"google.golang.org/api/iterator"
-	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1alpha1"
+	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1beta1"
 )
 
 const (
@@ -437,16 +437,10 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 		},
 	}
 
-	op, err := pcaClient.CreateCertificate(ctx, creq)
+	cresp, err := pcaClient.CreateCertificate(ctx, creq)
 	if err != nil {
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
-
-	cresp, err := op.Wait(ctx)
-	if err != nil {
-		return logical.ErrorResponse(fmt.Sprintf("Could not create Certificate: [%s] certspec %v", name, err)), logical.ErrInvalidRequest
-	}
-
 	return &logical.Response{
 		Data: map[string]interface{}{
 			"pubcert": cresp.GetPemCertificate(),
@@ -500,15 +494,11 @@ func (b *backend) pathGenerateKeyDelete(ctx context.Context, req *logical.Reques
 		Name:   parent,
 		Reason: privatecapb.RevocationReason_CESSATION_OF_OPERATION,
 	}
-	op, err := pcaClient.RevokeCertificate(ctx, crev)
+	crevresp, err := pcaClient.RevokeCertificate(ctx, crev)
 	if err != nil {
 		return logical.ErrorResponse("Error revoking certificate +v", err), logical.ErrInvalidRequest
 	}
 
-	crevresp, err := op.Wait(ctx)
-	if err != nil {
-		return logical.ErrorResponse(fmt.Sprintf("Error Revoking Certificate %v", err)), logical.ErrInvalidRequest
-	}
 	b.Logger().Debug("Certificate Revoked %s", crevresp.Name)
 
 	return &logical.Response{}, nil

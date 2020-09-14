@@ -280,7 +280,7 @@ To install, download `vault-plugin-secrets-gcpca` from the "Releases" page on gi
 - Register the Plugin (remember to update `path/to/vault/plugins/`). 
 
 ```bash
-export SHASUM=`curl -L -s https://github.com/salrashid123/vault-plugin-secrets-gcppca/releases/download/v1.0.0/checksum.sha256`
+export SHASUM=`curl -L -s https://github.com/salrashid123/vault-plugin-secrets-gcppca/releases/download/v1.0.1/checksum.sha256`
 
 vault plugin register \
     -sha256="${SHASUM}" \
