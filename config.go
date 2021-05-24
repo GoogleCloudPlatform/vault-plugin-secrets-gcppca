@@ -32,7 +32,7 @@ const (
 type Config struct {
 	Credentials string   `json:"credentials"`
 	Scopes      []string `json:"scopes"`
-	Issuer      string   `json:"issuer"`
+	Pool        string   `json:"pool"`
 	Location    string   `json:"location"`
 	Project     string   `json:"project"`
 }
@@ -68,10 +68,10 @@ func (c *Config) Update(d *framework.FieldData) (bool, error) {
 		}
 	}
 
-	if v, ok := d.GetOk("issuer"); ok {
+	if v, ok := d.GetOk("pool"); ok {
 		nv := strings.TrimSpace(v.(string))
-		if nv != c.Issuer {
-			c.Issuer = nv
+		if nv != c.Pool {
+			c.Pool = nv
 			changed = true
 		}
 	}
@@ -92,8 +92,8 @@ func (c *Config) Update(d *framework.FieldData) (bool, error) {
 		}
 	}
 
-	if c.Issuer == "" || c.Location == "" || c.Project == "" {
-		return true, errors.New("Must specify Issuer, Location and Project in config ")
+	if c.Pool == "" || c.Location == "" || c.Project == "" {
+		return true, errors.New("Must specify CAPool, Location and Project in config ")
 	}
 
 	return changed, nil

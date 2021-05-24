@@ -44,26 +44,26 @@ func TestConfig_Update(t *testing.T) {
 			"expect_project",
 			&Config{
 				Credentials: "creds",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 				Location:    "us-central1",
 			},
 			&framework.FieldData{
 				Raw: map[string]interface{}{
 					"credentials": "creds",
-					"issuer":      "iss",
+					"pool":        "my-pool",
 					"location":    "us-central1",
 				},
 			},
 			&Config{
 				Credentials: "creds",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 				Location:    "us-central1",
 			},
 			true,
 			true,
 		},
 		{
-			"expect_issuer",
+			"expect_pool",
 			&Config{
 				Credentials: "creds",
 				Project:     "project",
@@ -89,19 +89,19 @@ func TestConfig_Update(t *testing.T) {
 			&Config{
 				Credentials: "creds",
 				Project:     "project",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 			},
 			&framework.FieldData{
 				Raw: map[string]interface{}{
 					"credentials": "creds",
-					"issuer":      "iss",
+					"pool":        "my-pool",
 					"project":     "project",
 				},
 			},
 			&Config{
 				Credentials: "creds",
 				Project:     "project",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 			},
 			true,
 			true,
@@ -111,14 +111,14 @@ func TestConfig_Update(t *testing.T) {
 			&Config{
 				Credentials: "creds",
 				Project:     "project",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 				Location:    "us-central1",
 			},
 			nil,
 			&Config{
 				Credentials: "creds",
 				Project:     "project",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 				Location:    "us-central1",
 			},
 			false,
@@ -129,21 +129,21 @@ func TestConfig_Update(t *testing.T) {
 			&Config{
 				Credentials: "creds",
 				Project:     "project",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 				Location:    "us-central1",
 			},
 			&framework.FieldData{
 				Raw: map[string]interface{}{
 					"credentials": "foo",
 					"project":     "project",
-					"issuer":      "iss",
+					"pool":        "my-pool",
 					"location":    "us-central1",
 				},
 			},
 			&Config{
 				Credentials: "foo",
 				Project:     "project",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 				Location:    "us-central1",
 			},
 			true,
@@ -154,7 +154,7 @@ func TestConfig_Update(t *testing.T) {
 			&Config{
 				Credentials: "creds",
 				Project:     "project",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 				Location:    "us-central1",
 			},
 			&framework.FieldData{
@@ -162,7 +162,7 @@ func TestConfig_Update(t *testing.T) {
 					"credentials": "foo",
 					"scopes":      "bar",
 					"project":     "project",
-					"issuer":      "iss",
+					"pool":        "my-pool",
 					"location":    "us-central1",
 				},
 			},
@@ -170,7 +170,7 @@ func TestConfig_Update(t *testing.T) {
 				Credentials: "foo",
 				Scopes:      []string{"bar"},
 				Project:     "project",
-				Issuer:      "iss",
+				Pool:        "my-pool",
 				Location:    "us-central1",
 			},
 			true,
@@ -181,21 +181,21 @@ func TestConfig_Update(t *testing.T) {
 			&Config{
 				Scopes:   []string{"bar", "foo"},
 				Project:  "project",
-				Issuer:   "iss",
+				Pool:     "my-pool",
 				Location: "us-central1",
 			},
 			&framework.FieldData{
 				Raw: map[string]interface{}{
 					"scopes":   "foo,bar",
 					"project":  "project",
-					"issuer":   "iss",
+					"pool":     "my-pool",
 					"location": "us-central1",
 				},
 			},
 			&Config{
 				Scopes:   []string{"bar", "foo"},
 				Project:  "project",
-				Issuer:   "iss",
+				Pool:     "my-pool",
 				Location: "us-central1",
 			},
 			false,
@@ -206,21 +206,21 @@ func TestConfig_Update(t *testing.T) {
 			&Config{
 				Scopes:   []string{"bar", "foo"},
 				Project:  "project",
-				Issuer:   "iss",
+				Pool:     "my-pool",
 				Location: "us-central1",
 			},
 			&framework.FieldData{
 				Raw: map[string]interface{}{
 					"scopes":   "FOO,baR",
 					"project":  "project",
-					"issuer":   "iss",
+					"pool":     "my-pool",
 					"location": "us-central1",
 				},
 			},
 			&Config{
 				Scopes:   []string{"bar", "foo"},
 				Project:  "project",
-				Issuer:   "iss",
+				Pool:     "my-pool",
 				Location: "us-central1",
 			},
 			false,
@@ -231,21 +231,21 @@ func TestConfig_Update(t *testing.T) {
 			&Config{
 				Scopes:   []string{"bar", "foo"},
 				Project:  "project",
-				Issuer:   "iss",
+				Pool:     "my-pool",
 				Location: "us-central1",
 			},
 			&framework.FieldData{
 				Raw: map[string]interface{}{
 					"scopes":   "foo, foo, foo, bar",
 					"project":  "project",
-					"issuer":   "iss",
+					"pool":     "my-pool",
 					"location": "us-central1",
 				},
 			},
 			&Config{
 				Scopes:   []string{"bar", "foo"},
 				Project:  "project",
-				Issuer:   "iss",
+				Pool:     "my-pool",
 				Location: "us-central1",
 			},
 			false,

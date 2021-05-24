@@ -104,7 +104,7 @@ func TestBackend_PathConfigUpdate(t *testing.T) {
 			Data: map[string]interface{}{
 				"scopes":      "foo,bar",
 				"credentials": "creds",
-				"issuer":      "iss",
+				"pool":        "my-pool",
 				"project":     "project",
 				"location":    "us-central1",
 			},
@@ -134,7 +134,7 @@ func TestBackend_PathConfigUpdate(t *testing.T) {
 		entry, err := logical.StorageEntryJSON("config", &Config{
 			Scopes:      []string{"foo"},
 			Credentials: "creds",
-			Issuer:      "iss",
+			Pool:        "my-pool",
 			Project:     "project",
 			Location:    "us-central1",
 		})

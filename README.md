@@ -56,11 +56,11 @@ To issue certificates, you need to first define a profile (config) for the mount
 
 1. Define a config profile
 
-A profile dictates the specifications of the CA a specific Vault mount will use.  In the example used here, the mount path is `gcppca` with the CA of `prod-root`
+A profile dictates the specifications of the CA a specific Vault mount will use.  In the example used here, the mount path is `gcppca` with the CAPool of `my-pool`
 
 ```bash
 vault write gcppca/config \
-	issuer="prod-root" \
+	pool="my-pool" \
 	location="us-central1" \
 	project="your-project-id"  
 ```
@@ -81,7 +81,7 @@ Under no circumstance does this plugin retain the private key for any certificat
 
 - The sub-path under `<mount>/issue-with-csr/` is intended for user-provided CSR
 
-This plugin will create a certificate within GCP CA Service with a certificate `Name` using the final path parameter in the Vault resource path.  For example, `gcppca/issue-with-genkey/my_tls_cert_rsa_1` will create a GCP CA Service Resource path `projects/your-project-id/locations/us-central1/certificateAuthorities/prod-root/certificates/my_tls_cert_rsa_1`.  This is the actual CA Service unique name for the certificate and cannot be reused once created.
+This plugin will create a certificate within GCP CA Service with a certificate `Name` using the final path parameter in the Vault resource path.  For example, `gcppca/issue-with-genkey/my_tls_cert_rsa_1` will create a GCP CA Service Resource path `projects/your-project-id/locations/us-central1/caPools/my-pool/certificates/my_tls_cert_rsa_1`.  This is the actual CA Service unique name for the certificate and cannot be reused once created.
 
 Deleting the key in Vault will revoke the certificate in CA Service which also means the same name cannot be reused.
 
@@ -89,7 +89,7 @@ Deleting the key in Vault will revoke the certificate in CA Service which also m
 
 To generate a certificate keypair on vault, first apply a configuration that allows Vault to reference which CA to sign against 
 
-The configuration below will generate a certificate called `my_tls_cert_rsa_1` within CA Service using a GCP CA `prod-root` that was defined earlier by specifying `gcppca/config`.
+The configuration below will generate a certificate called `my_tls_cert_rsa_1` within CA Service using a GCP CA `prod-root` that was defined separately.  Note, `issuing_certificate_authority` is an optional parameter which if omitted, will cause the certificate to get issued by any CA in the pool.
 
 Apply the config and acquire a `VAULT_TOKEN` based off of those policies.
 
@@ -102,7 +102,8 @@ path "gcppca/issue-with-genkey/my_tls_cert_rsa_1" {
       "validity"= ["P30D"]
       "dns_san" = ["client.domain.com,client2.domain.com"]        
       "subject" = ["C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"]
-      "reusable_config" = ["leaf-server-tls"]     
+      "issuing_certificate_authority" = ["prod-root"]
+      "certificate_template" = ["projects/your_project_id/locations/us-central1/certificateTemplates/9acd5ccf-374b-42ce-b25e-322acaa99fae"]
   }
 }
 EOF
@@ -121,7 +122,8 @@ vault write gcppca/issue-with-genkey/my_tls_cert_rsa_1 \
 	validity="P30D" \
 	dns_san="client.domain.com,client2.domain.com" \
 	subject="C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"  \
-	reusable_config="leaf-server-tls" 
+  issuing_certificate_authority="prod-root" \
+	certificate_template="projects/your_project_id/locations/us-central1/certificateTemplates/9acd5ccf-374b-42ce-b25e-322acaa99fae" 
 ```
 
 The output will be Public Certificate and PrivateKey
@@ -196,6 +198,7 @@ Plugin configuration supports various options that are common and mode-specific 
 |:------------|-------------|
 | **`validity`** | `string` validity of the issued certificate (default: `P30d`) |
 | **`labels`** | `[]string` list of GCP labels to apply to the certificate (format `k1=v1,k2=v2`) |
+| **`issuing_certificate_authority`** | `string` Optional. The resource ID of the CertificateAuthority that should issue the certificate. |
 
 #### Generated (/issue-with-genkey/) Options
 
@@ -204,7 +207,7 @@ Plugin configuration supports various options that are common and mode-specific 
 | **`key_type`** | `string` what type of key to generate (default: `rsa`; either `rsa` or `ecdsa`; cannot be specified if `csr` is set) |
 | **`key_usage`** | `[]string` what are the `key_usage` settings (default: `[]`) |
 | **`extended_key_usage`** | `[]string` what are the `extended_key_usage` settings (default: `[]`)   |
-| **`reusable_config`** | `string` reusable_config to use (cannot be set if `key_usage`,`extended_key_usage` is set; default `[]`) |
+| **`certificate_template`** | `string` reusable_config to use (cannot be set if `key_usage`,`extended_key_usage` is set; default `[]`) |
 | **`subject`** | `string` subject field value (must be in canonical format `C=,ST=,L=,O=,CN=`)|
 | **`dns_san`** | `[]string` list of `dns_san` to use |
 | **`email_san`** | `[]string` list of `email_san` to use |
@@ -221,9 +224,9 @@ Plugin configuration supports various options that are common and mode-specific 
 
 Sample usage 
 
-The following policies describe usage of `reusable_config` and `key_usage` options.  
+The following policies describe usage of `certificate_template` and `key_usage` options.  
 
-`reusable_config` options:
+`certificate_template` options:
 
 ```bash
 vault policy write genkey-reusable-policy -<<EOF
@@ -234,7 +237,7 @@ path "gcppca/issue-with-genkey/my_tls_cert_ecdsa_1" {
       "validity"= ["P30D"]
       "dns_san" = ["client.domain.com,client2.domain.com"]        
       "subject" = ["C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"]
-      "reusable_config" = ["leaf-server-tls"]     
+      "certificate_template" = ["projects/mineral-minutia-820/locations/us-central1/certificateTemplates/9acd5ccf-374b-42ce-b25e-322acaa99fae"]     
   }
 }
 EOF
@@ -259,12 +262,11 @@ EOF
 When a derived VAULT_TOKEN is used with `vault write gcppca/issue-with-genkey/..` operations, you must provide the _exact_ parameters defined in the policy.  For example
 
 ```bash
-vault write gcppca/issue-with-genkey/my_tls_cert_ecdsa_1 \
-	key_type="ecdsa" \
+vault write gcppca/issue-with-genkey/my_tls_cert_encipher_1 \
 	validity="P30D" \
 	dns_san="client.domain.com,client2.domain.com" \
 	subject="C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"  \
-	reusable_config="leaf-server-tls"
+  key_usages="encipher_only"
 ```
 
 ### Revoke Certificates
@@ -280,7 +282,8 @@ To install, download `vault-plugin-secrets-gcpca` from the "Releases" page on gi
 - Register the Plugin (remember to update `path/to/vault/plugins/`). 
 
 ```bash
-export SHASUM=`curl -L -s https://github.com/salrashid123/vault-plugin-secrets-gcppca/releases/download/v1.0.1/checksum.sha256`
+export VERSION=v1.0.3
+export SHASUM=`curl -L -s https://github.com/GoogleCloudPlatform/vault-plugin-secrets-gcppca/releases/download/$VERSION/checksum.sha256`
 
 vault plugin register \
     -sha256="${SHASUM}" \

@@ -24,7 +24,7 @@ import (
 	"github.com/golang/protobuf/ptypes"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
-	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1beta1"
+	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1"
 )
 
 func (b *backend) pathCSR() *framework.Path {
@@ -52,6 +52,10 @@ func (b *backend) pathCSR() *framework.Path {
 				Description: `The validity of this certificate, as an ISO8601 duration. Defaults to	30 days. (P30D)`,
 				Default: "P30D",
 			},
+			"issuing_certificate_authority": &framework.FieldSchema{
+				Type:        framework.TypeString,
+				Description: `Optional. The resource ID of the CertificateAuthority that should issue the certificate. `,
+			},
 		},
 
 		Callbacks: map[logical.Operation]framework.OperationFunc{
@@ -66,6 +70,7 @@ func (b *backend) pathCSRWrite(ctx context.Context, req *logical.Request, d *fra
 	var name string
 	var csrPEM string
 	var labels map[string]string
+	var issuingCertificateAuthority string
 
 	name = d.Get("name").(string)
 	if v, ok := d.GetOk("labels"); ok {
@@ -87,6 +92,10 @@ func (b *backend) pathCSRWrite(ctx context.Context, req *logical.Request, d *fra
 		return logical.ErrorResponse("PEM contents cannot be empty"), logical.ErrInvalidRequest
 	}
 
+	if v, ok := d.GetOk("issuing_certificate_authority"); ok {
+		issuingCertificateAuthority = v.(string)
+	}
+
 	// Check if this is a valid PEM formatted CSR
 	block, _ := pem.Decode([]byte(csrPEM))
 	csrParsed, err := x509.ParseCertificateRequest(block.Bytes)
@@ -102,7 +111,7 @@ func (b *backend) pathCSRWrite(ctx context.Context, req *logical.Request, d *fra
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 
-	issuer := cfg.Issuer
+	pool := cfg.Pool
 	projectID := cfg.Project
 	location := cfg.Location
 
@@ -112,9 +121,10 @@ func (b *backend) pathCSRWrite(ctx context.Context, req *logical.Request, d *fra
 	}
 	defer closer()
 
-	parent := fmt.Sprintf("projects/%s/locations/%s/certificateAuthorities/%s", projectID, location, issuer)
+	parent := fmt.Sprintf("projects/%s/locations/%s/caPools/%s", projectID, location, pool)
 
-	creq := &privatecapb.CreateCertificateRequest{
+	var creq privatecapb.CreateCertificateRequest
+	creq = privatecapb.CreateCertificateRequest{
 		Parent:        parent,
 		CertificateId: name,
 		Certificate: &privatecapb.Certificate{
@@ -124,9 +134,10 @@ func (b *backend) pathCSRWrite(ctx context.Context, req *logical.Request, d *fra
 				PemCsr: string(csrPEM),
 			},
 		},
+		IssuingCertificateAuthorityId: issuingCertificateAuthority,
 	}
 
-	cresp, err := pcaClient.CreateCertificate(ctx, creq)
+	cresp, err := pcaClient.CreateCertificate(ctx, &creq)
 	if err != nil {
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
@@ -146,12 +157,12 @@ func (b *backend) pathCSRDelete(ctx context.Context, req *logical.Request, d *fr
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 
-	issuer := cfg.Issuer
+	pool := cfg.Pool
 	projectID := cfg.Project
 	location := cfg.Location
 
-	if issuer == "" || projectID == "" || location == "" {
-		return logical.ErrorResponse("Configuration settings not found: Issuer, ProjectID and Location must be set in <mount>/config"), logical.ErrInvalidRequest
+	if pool == "" || projectID == "" || location == "" {
+		return logical.ErrorResponse("Configuration settings not found: Pool, ProjectID and Location must be set in <mount>/config"), logical.ErrInvalidRequest
 	}
 
 	pcaClient, closer, err := b.PCAClient(req.Storage)
@@ -160,15 +171,15 @@ func (b *backend) pathCSRDelete(ctx context.Context, req *logical.Request, d *fr
 	}
 	defer closer()
 
-	b.Logger().Debug("Attempting to see if this cert exists %v", issuer, name)
+	b.Logger().Debug("Attempting to see if this cert exists %v", pool, name)
 
-	parent := fmt.Sprintf("projects/%s/locations/%s/certificateAuthorities/%s/certificates/%s", projectID, location, issuer, name)
+	parent := fmt.Sprintf("projects/%s/locations/%s/caPools/%s/certificates/%s", projectID, location, pool, name)
 	getReq := &privatecapb.GetCertificateRequest{
 		Name: parent,
 	}
 	gcert, err := pcaClient.GetCertificate(ctx, getReq)
 	if err != nil {
-		b.Logger().Debug("CertificateName doesn't exist..this maybe an anonymous cert exiting [", issuer, "]  certspec: ", name)
+		b.Logger().Debug("CertificateName doesn't exist..this maybe an anonymous cert exiting [", pool, "]  certspec: ", name)
 		// not sure what to return here, err or nil
 		//return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 		return &logical.Response{}, nil
