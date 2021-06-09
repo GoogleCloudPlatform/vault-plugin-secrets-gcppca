@@ -103,7 +103,6 @@ path "gcppca/issue-with-genkey/my_tls_cert_rsa_1" {
       "dns_san" = ["client.domain.com,client2.domain.com"]        
       "subject" = ["C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"]
       "issuing_certificate_authority" = ["prod-root"]
-      "certificate_template" = ["projects/your_project_id/locations/us-central1/certificateTemplates/9acd5ccf-374b-42ce-b25e-322acaa99fae"]
   }
 }
 EOF
@@ -122,8 +121,7 @@ vault write gcppca/issue-with-genkey/my_tls_cert_rsa_1 \
 	validity="P30D" \
 	dns_san="client.domain.com,client2.domain.com" \
 	subject="C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"  \
-  issuing_certificate_authority="prod-root" \
-	certificate_template="projects/your_project_id/locations/us-central1/certificateTemplates/9acd5ccf-374b-42ce-b25e-322acaa99fae" 
+  issuing_certificate_authority="prod-root"
 ```
 
 The output will be Public Certificate and PrivateKey
@@ -216,6 +214,8 @@ Plugin configuration supports various options that are common and mode-specific 
 | **`is_ca_cert`** | `bool` whether this certificate is for a CA or not. |
 | **`max_chain_length`** | `int` Maximum depth of subordinate CAs allowed under this CA for a CA certificate.|
 
+Note,  if you use `certificate_template`, specify the fully qualified name:
+   `"certificate_template" = ["projects/your_project_id/locations/your_location/certificateTemplates/your_template"]`
 #### CSR (/issue-with-csr/) Options
 
 | Option | Description |
@@ -237,7 +237,6 @@ path "gcppca/issue-with-genkey/my_tls_cert_ecdsa_1" {
       "validity"= ["P30D"]
       "dns_san" = ["client.domain.com,client2.domain.com"]        
       "subject" = ["C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"]
-      "certificate_template" = ["projects/mineral-minutia-820/locations/us-central1/certificateTemplates/9acd5ccf-374b-42ce-b25e-322acaa99fae"]     
   }
 }
 EOF
