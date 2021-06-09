@@ -265,7 +265,7 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 
 	if v, ok := d.GetOk("extended_key_usages"); ok {
 		for _, usage := range v.([]string) {
-			if !contains(valid_key_usages, usage) {
+			if !contains(valid_extended_key_usages, usage) {
 				return logical.ErrorResponse("Invalid extended_key_usages, must one of ", valid_extended_key_usages), logical.ErrInvalidRequest
 			}
 		}
