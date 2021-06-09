@@ -121,7 +121,7 @@ vault write gcppca/issue-with-genkey/my_tls_cert_rsa_1 \
 	validity="P30D" \
 	dns_san="client.domain.com,client2.domain.com" \
 	subject="C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"  \
-  issuing_certificate_authority="prod-root"
+	issuing_certificate_authority="prod-root"
 ```
 
 The output will be Public Certificate and PrivateKey
@@ -252,7 +252,7 @@ path "gcppca/issue-with-genkey/my_tls_cert_encipher_1" {
       "validity"= ["P30D"]
       "dns_san" = ["client.domain.com,client2.domain.com"]        
       "subject" = ["C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"]
-      "key_usages" = ["encipher_only"]      
+      "key_usages" = ["encipher_only"]
   }
 }
 EOF
@@ -265,7 +265,7 @@ vault write gcppca/issue-with-genkey/my_tls_cert_encipher_1 \
 	validity="P30D" \
 	dns_san="client.domain.com,client2.domain.com" \
 	subject="C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"  \
-  key_usages="encipher_only"
+	key_usages="encipher_only"
 ```
 
 ### Revoke Certificates
