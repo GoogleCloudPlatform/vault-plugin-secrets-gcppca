@@ -85,11 +85,20 @@ This plugin will create a certificate within GCP CA Service with a certificate `
 
 Deleting the key in Vault will revoke the certificate in CA Service which also means the same name cannot be reused.
 
+The examples below uses a default certificate authority pool with a CA.  That is, you should have a set pre-generated
+
+```
+```bash
+$ gcloud privateca pools create my-pool-1 --location=us-central1
+$ gcloud privateca roots create ca-1 --location=us-central1 --pool my-pool-1 \
+   --subject "C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"
+```
+
 ### Vault Generated
 
 To generate a certificate keypair on vault, first apply a configuration that allows Vault to reference which CA to sign against 
 
-The configuration below will generate a certificate called `my_tls_cert_rsa_1` within CA Service using a GCP CA `prod-root` that was defined separately.  Note, `issuing_certificate_authority` is an optional parameter which if omitted, will cause the certificate to get issued by any CA in the pool.
+The configuration below will generate a certificate called `my_tls_cert_rsa_1` within CA Service using a GCP CA `prod-root` that was defined separately. 
 
 Apply the config and acquire a `VAULT_TOKEN` based off of those policies.
 
@@ -102,7 +111,6 @@ path "gcppca/issue-with-genkey/my_tls_cert_rsa_1" {
       "validity"= ["P30D"]
       "dns_san" = ["client.domain.com,client2.domain.com"]        
       "subject" = ["C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"]
-      "issuing_certificate_authority" = ["prod-root"]
   }
 }
 EOF
@@ -120,8 +128,7 @@ vault write gcppca/issue-with-genkey/my_tls_cert_rsa_1 \
 	key_type="rsa" \
 	validity="P30D" \
 	dns_san="client.domain.com,client2.domain.com" \
-	subject="C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"  \
-	issuing_certificate_authority="prod-root"
+	subject="C=US,ST=California,L=Mountain View,O=Google LLC,CN=google.com"
 ```
 
 The output will be Public Certificate and PrivateKey
@@ -196,7 +203,7 @@ Plugin configuration supports various options that are common and mode-specific 
 |:------------|-------------|
 | **`validity`** | `string` validity of the issued certificate (default: `P30d`) |
 | **`labels`** | `[]string` list of GCP labels to apply to the certificate (format `k1=v1,k2=v2`) |
-| **`issuing_certificate_authority`** | `string` Optional. The resource ID of the CertificateAuthority that should issue the certificate. |
+| **`issuing_certificate_authority`** | `string` Optional. The resource ID of the CertificateAuthority that should issue the certificate. By default, the certificate will be issued from any of the active CAs in the CA Pool. |
 
 #### Generated (/issue-with-genkey/) Options
 
@@ -205,7 +212,7 @@ Plugin configuration supports various options that are common and mode-specific 
 | **`key_type`** | `string` what type of key to generate (default: `rsa`; either `rsa` or `ecdsa`; cannot be specified if `csr` is set) |
 | **`key_usage`** | `[]string` what are the `key_usage` settings (default: `[]`) |
 | **`extended_key_usage`** | `[]string` what are the `extended_key_usage` settings (default: `[]`)   |
-| **`certificate_template`** | `string` reusable_config to use (cannot be set if `key_usage`,`extended_key_usage` is set; default `[]`) |
+| **`certificate_template`** | `string` certificate_template to use (cannot be set if `key_usage`,`extended_key_usage` is set; default `[]`) |
 | **`subject`** | `string` subject field value (must be in canonical format `C=,ST=,L=,O=,CN=`)|
 | **`dns_san`** | `[]string` list of `dns_san` to use |
 | **`email_san`** | `[]string` list of `email_san` to use |
