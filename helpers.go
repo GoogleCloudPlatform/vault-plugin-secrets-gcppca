@@ -102,3 +102,8 @@ func contains(s []string, e string) bool {
 	}
 	return false
 }
+
+func toInt32(in int) *int32 {
+	q := int32(in)
+	return &q
+}

@@ -47,9 +47,9 @@ The list of full-URL scopes to request when authenticating. By default, this
 requests https://www.googleapis.com/auth/cloud-platform.
 `,
 			},
-			"issuer": &framework.FieldSchema{
+			"pool": &framework.FieldSchema{
 				Type:        framework.TypeString,
-				Description: `Issuer or CA Service or Subordinate should apply to`,
+				Description: `CaPool to issue a certificate against`,
 			},
 			"location": &framework.FieldSchema{
 				Type: framework.TypeString,
@@ -99,7 +99,7 @@ func (b *backend) pathConfigRead(ctx context.Context, req *logical.Request, _ *f
 		Data: map[string]interface{}{
 			"project":  c.Project,
 			"location": c.Location,
-			"issuer":   c.Issuer,
+			"pool":     c.Pool,
 			"scopes":   c.Scopes,
 		},
 	}, nil

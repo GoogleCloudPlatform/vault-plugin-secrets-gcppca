@@ -26,7 +26,7 @@ import (
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/option"
 
-	pcaapi "cloud.google.com/go/security/privateca/apiv1beta1"
+	pcaapi "cloud.google.com/go/security/privateca/apiv1"
 )
 
 var (

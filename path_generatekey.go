@@ -26,13 +26,12 @@ import (
 	"strings"
 	"time"
 
-	privateca "cloud.google.com/go/security/privateca/apiv1beta1"
+	privateca "cloud.google.com/go/security/privateca/apiv1"
 	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/wrappers"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/logical"
 	"google.golang.org/api/iterator"
-	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1beta1"
+	privatecapb "google.golang.org/genproto/googleapis/cloud/security/privateca/v1"
 )
 
 const (
@@ -67,7 +66,7 @@ var (
 		key_agreement, cert_sign, crl_sign, encipher_only, decipher_only}
 	valid_extended_key_usages = []string{server_auth, client_auth, code_signing, email_protection,
 		time_stamping, ocsp_signing}
-	valid_reusable_config = []string{} // derived from api
+	valid_certificate_templates = []string{} // derived
 )
 
 func (b *backend) pathGenerateKey() *framework.Path {
@@ -122,9 +121,13 @@ func (b *backend) pathGenerateKey() *framework.Path {
 				Description: `One of:  server_auth, client_auth,
 				code_signing, email_protection, time_stamping, ocsp_signing`,
 			},
-			"reusable_config": &framework.FieldSchema{
+			"certificate_template": &framework.FieldSchema{
 				Type:        framework.TypeString,
-				Description: `Reusable Config Name`,
+				Description: `Certificate Template to use`,
+			},
+			"issuing_certificate_authority": &framework.FieldSchema{
+				Type:        framework.TypeString,
+				Description: `Optional. The resource ID of the CertificateAuthority that should issue the certificate. `,
 			},
 			"max_chain_length": &framework.FieldSchema{
 				Type: framework.TypeInt,
@@ -160,10 +163,11 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 	var uriSAN []string
 	var key_usages []string
 	var extended_key_usages []string
-	var reusable_config string
+	var certificate_template string
 	var validity time.Duration
 	var labels map[string]string
 	var is_ca_cert bool
+	var issuingCertificateAuthority string
 
 	name = d.Get("name").(string)
 
@@ -175,12 +179,12 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 
-	issuer := cfg.Issuer
+	pool := cfg.Pool
 	projectID := cfg.Project
 	location := cfg.Location
 
-	if issuer == "" || projectID == "" || location == "" {
-		return logical.ErrorResponse("Configuration settings not found: Issuer, ProjectID and Location must be set in <mount>/config"), logical.ErrInvalidRequest
+	if pool == "" || projectID == "" || location == "" {
+		return logical.ErrorResponse("Configuration settings not found: CAPool, ProjectID and Location must be set in <mount>/config"), logical.ErrInvalidRequest
 	}
 
 	pcaClient, closer, err := b.PCAClient(req.Storage)
@@ -242,16 +246,23 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 		}
 	}
 
-	valid_reusable_config, err := b.getReusableConfigs(ctx, pcaClient, location)
+	// certificate_templates can reside in any other project.   For the sake of configuration simplicity,
+	// we can comment out the following and skip the check.  If the referenced template does not exist, the
+	// error isn't particularly helpful: "rpc error: code = NotFound desc = Requested entity was not found."
+	valid_certificate_templates, err := b.getCertificateTemplates(ctx, pcaClient, projectID, location)
 	if err != nil {
-		return logical.ErrorResponse("Could not recall reusable configs from CA Service "), logical.ErrInvalidRequest
+		return logical.ErrorResponse(fmt.Sprintf("Could not recall certificate Templates from project %s", projectID)), logical.ErrInvalidRequest
 	}
 
-	if v, ok := d.GetOk("reusable_config"); ok {
-		if !contains(valid_reusable_config, v.(string)) {
-			return logical.ErrorResponse("Invalid reusable configs, must one of ", valid_reusable_config), logical.ErrInvalidRequest
+	if v, ok := d.GetOk("certificate_template"); ok {
+		if !contains(valid_certificate_templates, v.(string)) {
+			return logical.ErrorResponse("Invalid reusable configs, must one of %v", valid_certificate_templates), logical.ErrInvalidRequest
 		}
-		reusable_config = v.(string)
+		certificate_template = v.(string)
+	}
+
+	if v, ok := d.GetOk("issuing_certificate_authority"); ok {
+		issuingCertificateAuthority = v.(string)
 	}
 
 	if v, ok := d.GetOk("key_usages"); ok {
@@ -265,15 +276,15 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 
 	if v, ok := d.GetOk("extended_key_usages"); ok {
 		for _, usage := range v.([]string) {
-			if !contains(valid_key_usages, usage) {
+			if !contains(valid_extended_key_usages, usage) {
 				return logical.ErrorResponse("Invalid extended_key_usages, must one of ", valid_extended_key_usages), logical.ErrInvalidRequest
 			}
 		}
 		extended_key_usages = v.([]string)
 	}
 
-	if len(reusable_config) > 0 && (len(key_usages) > 0 || len(extended_key_usages) > 0) {
-		b.Logger().Error("Either reusable config or (key_usages|extended_key_usage) must be specified")
+	if len(certificate_template) > 0 && (len(key_usages) > 0 || len(extended_key_usages) > 0) {
+		b.Logger().Error("Either certificate_template or (key_usages|extended_key_usage) must be specified")
 		return logical.ErrorResponse("Either reusable config or (key_usages|extended_key_usage) must be specified"), logical.ErrInvalidRequest
 	}
 
@@ -289,7 +300,7 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 		}
 	}
 
-	var pubkey *privatecapb.PublicKey
+	var pubPem []byte
 	var publicKeyDer []byte
 	var privPEM []byte
 
@@ -311,10 +322,12 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 			return logical.ErrorResponse(fmt.Sprintf("Unable to get marshall RSA publicKey %v", err)), logical.ErrInvalidRequest
 		}
 
-		pubkey = &privatecapb.PublicKey{
-			Type: privatecapb.PublicKey_PEM_RSA_KEY,
-			Key:  publicKeyDer,
-		}
+		pubPem = pem.EncodeToMemory(
+			&pem.Block{
+				Type:  "PUBLIC KEY",
+				Bytes: publicKeyDer,
+			},
+		)
 	} else {
 
 		pubkeyCurve := elliptic.P256()
@@ -339,105 +352,145 @@ func (b *backend) pathGenerateKeyWrite(ctx context.Context, req *logical.Request
 			b.Logger().Error("Unable to get publicKey %v", err)
 			return logical.ErrorResponse(fmt.Sprintf("Unable to get publicKey %v", err)), logical.ErrInvalidRequest
 		}
-		pubkey = &privatecapb.PublicKey{
-			Type: privatecapb.PublicKey_PEM_EC_KEY,
-			Key:  publicKeyDer,
-		}
+		pubPem = pem.EncodeToMemory(
+			&pem.Block{
+				Type:  "PUBLIC KEY",
+				Bytes: publicKeyDer,
+			},
+		)
 
 	}
 
-	pubPem := pem.EncodeToMemory(
-		&pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: publicKeyDer,
-		},
-	)
-	pubkey.Key = pubPem
+	parent := fmt.Sprintf("projects/%s/locations/%s/caPools/%s", projectID, location, pool)
 
-	var rcfgw privatecapb.ReusableConfigWrapper
+	var creq privatecapb.CreateCertificateRequest
 
-	if len(reusable_config) > 0 {
-		reusableConfigProject := "privateca-data"
-		reusableConfigName := fmt.Sprintf("projects/%s/locations/%s/reusableConfigs/%s", reusableConfigProject, location, reusable_config)
-		rcfgw.ConfigValues = &privatecapb.ReusableConfigWrapper_ReusableConfig{
-			ReusableConfig: reusableConfigName,
+	var rcfgw privatecapb.X509Parameters
+
+	if len(certificate_template) > 0 {
+
+		creq = privatecapb.CreateCertificateRequest{
+			Parent:                        parent,
+			CertificateId:                 name,
+			IssuingCertificateAuthorityId: issuingCertificateAuthority,
+			Certificate: &privatecapb.Certificate{
+				Lifetime:            ptypes.DurationProto(validity),
+				Labels:              labels,
+				CertificateTemplate: certificate_template,
+				CertificateConfig: &privatecapb.Certificate_Config{
+					Config: &privatecapb.CertificateConfig{
+						PublicKey: &privatecapb.PublicKey{
+							Format: privatecapb.PublicKey_PEM,
+							Key:    pubPem,
+						},
+						X509Config: &privatecapb.X509Parameters{},
+						SubjectConfig: &privatecapb.CertificateConfig_SubjectConfig{
+							Subject: &privatecapb.Subject{
+								Organization:       subjectValues["organization"],
+								OrganizationalUnit: subjectValues["organizationunit"],
+								Locality:           subjectValues["locality"],
+								Province:           subjectValues["province"],
+								CountryCode:        subjectValues["country"],
+								CommonName:         subjectValues["cn"],
+							},
+							SubjectAltName: &privatecapb.SubjectAltNames{
+								DnsNames:       dnsSAN,
+								Uris:           uriSAN,
+								EmailAddresses: emailSAN,
+								IpAddresses:    ipSAN,
+							},
+						},
+					},
+				},
+			},
 		}
+
 	} else {
-		caOptions := &privatecapb.ReusableConfigValues_CaOptions{}
+		caOptions := &privatecapb.X509Parameters_CaOptions{}
 		if is_ca_cert {
-			caOptions.IsCa = &wrappers.BoolValue{
-				Value: is_ca_cert,
-			}
+			caOptions.IsCa = &is_ca_cert
 			// TODO: the path length attribute isn't shown in the cert thats issued...
 			if v, ok := d.GetOk("max_chain_length"); ok {
-				caOptions.MaxIssuerPathLength = &wrappers.Int32Value{
-					Value: int32(v.(int)),
-				}
+				caOptions.MaxIssuerPathLength = toInt32(v.(int))
 			}
 		}
 		// meh, ther's much more elegant way than iterating like this
 		// dont be lazy, sal
-		rcfgw.ConfigValues = &privatecapb.ReusableConfigWrapper_ReusableConfigValues{
-			ReusableConfigValues: &privatecapb.ReusableConfigValues{
-				CaOptions: caOptions,
-				KeyUsage: &privatecapb.KeyUsage{
-					BaseKeyUsage: &privatecapb.KeyUsage_KeyUsageOptions{
-						DigitalSignature:  contains(key_usages, digital_signature),
-						ContentCommitment: contains(key_usages, content_commitment),
-						KeyEncipherment:   contains(key_usages, key_encipherment),
-						DataEncipherment:  contains(key_usages, data_encipherment),
-						KeyAgreement:      contains(key_usages, key_agreement),
-						CertSign:          contains(key_usages, cert_sign),
-						CrlSign:           contains(key_usages, cert_sign),
-						EncipherOnly:      contains(key_usages, encipher_only),
-						DecipherOnly:      contains(key_usages, decipher_only),
-					},
-					ExtendedKeyUsage: &privatecapb.KeyUsage_ExtendedKeyUsageOptions{
-						ServerAuth:      contains(extended_key_usages, server_auth),
-						ClientAuth:      contains(extended_key_usages, client_auth),
-						CodeSigning:     contains(extended_key_usages, code_signing),
-						EmailProtection: contains(extended_key_usages, email_protection),
-						TimeStamping:    contains(extended_key_usages, time_stamping),
-						OcspSigning:     contains(extended_key_usages, ocsp_signing),
+		rcfgw = privatecapb.X509Parameters{
+
+			KeyUsage: &privatecapb.KeyUsage{
+				BaseKeyUsage: &privatecapb.KeyUsage_KeyUsageOptions{
+					DigitalSignature:  contains(key_usages, digital_signature),
+					ContentCommitment: contains(key_usages, content_commitment),
+					KeyEncipherment:   contains(key_usages, key_encipherment),
+					DataEncipherment:  contains(key_usages, data_encipherment),
+					KeyAgreement:      contains(key_usages, key_agreement),
+					CertSign:          contains(key_usages, cert_sign),
+					CrlSign:           contains(key_usages, cert_sign),
+					EncipherOnly:      contains(key_usages, encipher_only),
+					DecipherOnly:      contains(key_usages, decipher_only),
+				},
+				ExtendedKeyUsage: &privatecapb.KeyUsage_ExtendedKeyUsageOptions{
+					ServerAuth:      contains(extended_key_usages, server_auth),
+					ClientAuth:      contains(extended_key_usages, client_auth),
+					CodeSigning:     contains(extended_key_usages, code_signing),
+					EmailProtection: contains(extended_key_usages, email_protection),
+					TimeStamping:    contains(extended_key_usages, time_stamping),
+					OcspSigning:     contains(extended_key_usages, ocsp_signing),
+				},
+			},
+			CaOptions: &privatecapb.X509Parameters_CaOptions{
+				IsCa: &is_ca_cert,
+			},
+		}
+		creq = privatecapb.CreateCertificateRequest{
+			Parent:                        parent,
+			CertificateId:                 name,
+			IssuingCertificateAuthorityId: issuingCertificateAuthority,
+			Certificate: &privatecapb.Certificate{
+				Lifetime: ptypes.DurationProto(validity),
+				Labels:   labels,
+				CertificateConfig: &privatecapb.Certificate_Config{
+					Config: &privatecapb.CertificateConfig{
+						PublicKey: &privatecapb.PublicKey{
+							Format: privatecapb.PublicKey_PEM,
+							Key:    pubPem,
+						},
+						SubjectConfig: &privatecapb.CertificateConfig_SubjectConfig{
+							Subject: &privatecapb.Subject{
+								Organization:       subjectValues["organization"],
+								OrganizationalUnit: subjectValues["organizationunit"],
+								Locality:           subjectValues["locality"],
+								Province:           subjectValues["province"],
+								CountryCode:        subjectValues["country"],
+								CommonName:         subjectValues["cn"],
+							},
+							SubjectAltName: &privatecapb.SubjectAltNames{
+								DnsNames:       dnsSAN,
+								Uris:           uriSAN,
+								EmailAddresses: emailSAN,
+								IpAddresses:    ipSAN,
+								// CustomSans is just a sample placeholder below because i do not
+								// know how best to map a vault config into a complex proto
+								// TODO: figure out how to specify customSans in vault config.
+								//       maybe serialized b64  []*X509Extension serialized?
+								// CustomSans: []*privatecapb.X509Extension{{
+								// 	ObjectId: &privatecapb.ObjectId{
+								// 		ObjectIdPath: []int32{},
+								// 	},
+								// 	Critical: false,
+								// 	Value: []byte(""),
+								// }},
+							},
+						},
+						X509Config: &rcfgw,
 					},
 				},
 			},
 		}
 	}
 
-	parent := fmt.Sprintf("projects/%s/locations/%s/certificateAuthorities/%s", projectID, location, issuer)
-	creq := &privatecapb.CreateCertificateRequest{
-		Parent:        parent,
-		CertificateId: name,
-		Certificate: &privatecapb.Certificate{
-			Lifetime: ptypes.DurationProto(validity),
-			Labels:   labels,
-			CertificateConfig: &privatecapb.Certificate_Config{
-				Config: &privatecapb.CertificateConfig{
-					PublicKey: pubkey,
-					SubjectConfig: &privatecapb.CertificateConfig_SubjectConfig{
-						Subject: &privatecapb.Subject{
-							Organization:       subjectValues["organization"],
-							OrganizationalUnit: subjectValues["organizationunit"],
-							Locality:           subjectValues["locality"],
-							Province:           subjectValues["province"],
-							CountryCode:        subjectValues["country"],
-						},
-						CommonName: subjectValues["cn"],
-						SubjectAltName: &privatecapb.SubjectAltNames{
-							DnsNames:       dnsSAN,
-							Uris:           uriSAN,
-							EmailAddresses: emailSAN,
-							IpAddresses:    ipSAN,
-						},
-					},
-					ReusableConfig: &rcfgw,
-				},
-			},
-		},
-	}
-
-	cresp, err := pcaClient.CreateCertificate(ctx, creq)
+	cresp, err := pcaClient.CreateCertificate(ctx, &creq)
 	if err != nil {
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
@@ -458,7 +511,7 @@ func (b *backend) pathGenerateKeyDelete(ctx context.Context, req *logical.Reques
 		return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 	}
 
-	issuer := ccfg.Issuer
+	caPool := ccfg.Pool
 	projectID := ccfg.Project
 	location := ccfg.Location
 
@@ -468,15 +521,15 @@ func (b *backend) pathGenerateKeyDelete(ctx context.Context, req *logical.Reques
 	}
 	defer closer()
 
-	b.Logger().Debug("Attempting to see if cert exists issuer:", issuer, "name:", name)
+	b.Logger().Debug("Attempting to see if cert exists issuer:", caPool, "name:", name)
 
-	parent := fmt.Sprintf("projects/%s/locations/%s/certificateAuthorities/%s/certificates/%s", projectID, location, issuer, name)
+	parent := fmt.Sprintf("projects/%s/locations/%s/caPools/%s/certificates/%s", projectID, location, caPool, name)
 	getReq := &privatecapb.GetCertificateRequest{
 		Name: parent,
 	}
 	gcert, err := pcaClient.GetCertificate(ctx, getReq)
 	if err != nil {
-		b.Logger().Debug("CertificateName doesn't exist..this maybe an anonymous cert, exiting  certspec:", issuer, "name[", name, "]")
+		b.Logger().Debug("CertificateName doesn't exist..this maybe an anonymous cert, exiting  certspec:", caPool, "name[", name, "]")
 		// not sure what to return here, err or nil
 		//return logical.ErrorResponse(err.Error()), logical.ErrInvalidRequest
 		return &logical.Response{}, nil
@@ -504,15 +557,15 @@ func (b *backend) pathGenerateKeyDelete(ctx context.Context, req *logical.Reques
 	return &logical.Response{}, nil
 }
 
-func (b *backend) getReusableConfigs(ctx context.Context, pcaClient *privateca.CertificateAuthorityClient, location string) (values []string, err error) {
+func (b *backend) getCertificateTemplates(ctx context.Context, pcaClient *privateca.CertificateAuthorityClient, projectID string, location string) (values []string, err error) {
 
-	var valid_reusable_config []string
-	parent := fmt.Sprintf("projects/%s/locations/%s/reusableConfigs", "privateca-data", location)
+	var valid_certificate_templates []string
+	parent := fmt.Sprintf("projects/%s/locations/%s/certificateTemplates", projectID, location)
 
-	rcreq := &privatecapb.ListReusableConfigsRequest{
+	rcreq := &privatecapb.ListCertificateTemplatesRequest{
 		Parent: parent,
 	}
-	it := pcaClient.ListReusableConfigs(ctx, rcreq)
+	it := pcaClient.ListCertificateTemplates(ctx, rcreq)
 	for {
 		cfg, err := it.Next()
 		if err == iterator.Done {
@@ -521,10 +574,7 @@ func (b *backend) getReusableConfigs(ctx context.Context, pcaClient *privateca.C
 		if err != nil {
 			return []string{}, err
 		}
-		n := cfg.Name
-		ss := strings.Split(n, "/")
-		s := ss[len(ss)-1]
-		valid_reusable_config = append(valid_reusable_config, s)
+		valid_certificate_templates = append(valid_certificate_templates, cfg.Name)
 	}
-	return valid_reusable_config, nil
+	return valid_certificate_templates, nil
 }

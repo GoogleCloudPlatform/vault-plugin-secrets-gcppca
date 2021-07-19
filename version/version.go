@@ -21,7 +21,7 @@ const (
 	Name = "vault-plugin-secrets-gcppca"
 
 	// Version is the version of the release.
-	Version = "0.0.1"
+	Version = "1.0.3"
 )
 
 var (

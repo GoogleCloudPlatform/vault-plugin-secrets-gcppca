@@ -1,6 +1,6 @@
 GOMAXPROCS = 4
 
-PROJECT    = "github.com/salrashid123/vault-plugin-secrets-gcpca"
+PROJECT    = "github.com/GoogleCloudPlatform/vault-plugin-secrets-gcppca"
 NAME       = $(shell go run version/cmd/main.go name)
 VERSION    = $(shell go run version/cmd/main.go version)
 COMMIT     = $(shell git rev-parse --short HEAD)
